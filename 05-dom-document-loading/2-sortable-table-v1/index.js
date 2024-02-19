@@ -1,96 +1,123 @@
 export default class SortableTable {
-  constructor(headerConfig = [], data = []) {
-    this.header = headerConfig;
+
+  element;
+  subElements = {};
+
+  constructor(headerConfig, {data = []} = {}) {
+    this.headerConfig = headerConfig;
     this.data = data;
     this.render();
   }
 
-  get template() {
+  getTable(data) {
     return `
-      <div data-element="productsContainer" class="products-list__container">
-        <div class="sortable-table">
-          <div data-element="header" class="sortable-table__header sortable-table__row">
-            <div class="sortable-table__cell" data-name="images">
-              <span>Image</span>
-            </div>
-            <div class="sortable-table__cell" data-name="title" data-sortable="">
-              <span>Name</span>
-              <span class="sortable-table__sort-arrow">
-                <span class="sort-arrow"></span>
-              </span>
-            </div>
-            <div class="sortable-table__cell" data-name="category">
-              <span>Category</span>
-            </div>
-            <div class="sortable-table__cell" data-name="quantity" data-sortable="">
-              <span>Quantity</span>
-            </div>
-            <div class="sortable-table__cell" data-name="price" data-sortable="">
-              <span>Price</span>
-            </div>
-          </div>
-          <div data-element="body" class="sortable-table__body">
-          ${this.getItemData(this.data)}
-          </div>
-        </div>
+      <div class="sortable-table">
+        ${this.getTableHeader()}
+        ${this.getTableBody(data)}
       </div>
     `;
   }
 
-  getItemData(data) {
-    return data
-      .map(item => {
-        let itemImgString = '';
-        let itemCategoryString = '';
-        let itemQuantityString = '';
-        if(item.images) {
-          itemImgString = `
-            <div class="sortable-table__cell">
-              <img class="sortable-table-image" alt="Image" src="${item.images[0].url}">
-            </div>
-          `;
-        }
-        if(item.subcategory) {
-          itemCategoryString = `
-            <div class="sortable-table__cell">
-              <span>${item.subcategory.category.title}</span>
-            </div>
-          `;
-        }
-        if(item.quantity) {
-          itemQuantityString = `
-            <div class="sortable-table__cell">${item.quantity}</div>
-          `;
-        }
-      return `
-        <a href="" class="sortable-table__row">
-          ${itemImgString}
-          <div class="sortable-table__cell">${item.title}</div>
-          ${itemCategoryString}
-          ${itemQuantityString}
-          <div class="sortable-table__cell">${item.price}</div>
-        </a>
-      `;
+  getTableHeader() {
+    return `
+      <div data-element="header" class="sortable-table__header sortable-table__row">
+        ${this.headerConfig.map(item => this.getHeaderRow(item)).join('')}
+      </div>
+    `;
+  }
+
+  getHeaderRow({id, title, sortable}) {
+    return `
+      <div class="sortable-table__cell" data-name="${id}" data-sortable="${sortable}">
+        <span>${title}</span>
+        ${this.getHeaderSortingArrow()}
+      </div>
+    `;
+  }
+
+  getHeaderSortingArrow() {
+    return `
+      <span data-element="arrow" class="sortable-table__sort-arrow">
+        <span class="sort-arrow"></span>
+      </span>
+    `;
+  }
+
+  getTableBody(data) {
+    return `
+      <div data-element="body" class="sortable-table__body">
+        ${this.getTableRows(data)}
+      </div>
+    `;
+  }
+
+  getTableRows(data) {
+    return data.map(item => `
+      <div class="sortable-table__row">
+        ${this.getTableRow(item, data)}
+      </div>`
+    ).join('');
+  }
+
+  getTableRow(item) {
+    const cells = this.headerConfig.map(({id, template}) => {
+      return {
+        id,
+        template
+      };
+    });
+
+    return cells.map(({id, template}) => {
+      return template
+        ? template(item[id])
+        : `<div class="sortable-table__cell">${item[id]}</div>`;
     }).join('');
   }
 
   render() {
     const element = document.createElement('div');
-    element.innerHTML = this.template;
-
-
+    element.innerHTML = this.getTable(this.data);
     this.element = element.firstElementChild;
-
-    this.subElements = this.getSubElements(this.element);
-
+    this.subElements = this.getSubElements(element);
   }
 
-  remove() {
-    this.element.remove();
+  sort(field, order) {
+    const sorted = this.sortByColumnTitle(field, order);
+    const columnsRow = this.element.querySelectorAll('.sortable-table__cell[data-name]');
+    const currentColumn = this.element.querySelector(`.sortable-table__cell[data-name="${field}"]`);
+
+    columnsRow.forEach(column => {
+      column.dataset.order = '';
+    });
+
+    currentColumn.dataset.order = order;
+    this.subElements.body.innerHTML = this.getTableRows(sorted);
   }
 
-  destroy() {
-    this.remove();
+  sortByColumnTitle(field, order) {
+    const deepCopy = [...this.data];
+    const column = this.headerConfig.find(item => item.id === field);
+    const { sortType, customSorting } = column;
+
+    return deepCopy.sort((a, b) => {
+      switch(sortType) {
+        case 'string':
+          if(order === 'asc') {
+            return a[field].localeCompare(b[field], 'ru-RU', {caseFirst: 'upper'});
+          }
+          return b[field].localeCompare(a[field], 'ru-RU', {caseFirst: 'upper'});
+        case 'number':
+          if(order === 'asc') {
+            return a[field] - b[field];
+          }
+          return b[field] - a[field];
+        case 'custom':
+          if(order === 'asc') {
+            return customSorting(a, b);
+          }
+          return customSorting(b, a);
+      }
+    });
   }
 
   getSubElements(element) {
@@ -102,45 +129,16 @@ export default class SortableTable {
     }, {});
   }
 
-  sort(fieldValue, orderValue) {
-    if(orderValue === "asc") {
-      if(fieldValue === 'price' || fieldValue === 'sales') {
-        this.data = SortableTable.sortAscNum(this.data, fieldValue);
-      } else {
-        this.data = SortableTable.sortAsc(this.data, fieldValue);
-      }
-    } else if(orderValue === "desc") {
-      if(fieldValue === 'price' || fieldValue === 'sales') {
-        this.data = SortableTable.sortDescNum(this.data, fieldValue);
-      } else {
-        this.data = SortableTable.sortDesc(this.data, fieldValue);
-      }
-    }
-    this.render();
+  remove() {
+    this.element.remove();
   }
 
-  static sortAsc(arr, fieldValue) {
-    return arr.slice(0).sort((a, b) =>
-      a[fieldValue].localeCompare(b[fieldValue], 'ru-RU', {caseFirst: 'upper'}));
-    }
-
-  static sortDesc(arr, fieldValue) {
-    return arr.slice(0).sort((a, b) =>
-      b[fieldValue].localeCompare(a[fieldValue], 'ru-RU', {caseFirst: 'upper'}));
-  }
-
-
-  static sortAscNum(arr, fieldValue) {
-    return arr.slice(0).sort((a, b) =>
-      a[fieldValue]-b[fieldValue]
-    );
-  }
-
-  static sortDescNum(arr, fieldValue) {
-    return arr.slice(0).sort((a, b) =>
-      b[fieldValue]-a[fieldValue]
-    );
+  destroy() {
+    this.remove();
+    this.subElements = {};
   }
 
 }
+
+
 
